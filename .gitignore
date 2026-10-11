@@ -1,3 +1,8 @@
 .env
 private-key.pem
+*.pem
+.env.*
+!.env.example
 node_modules/
+dist/
+review.md

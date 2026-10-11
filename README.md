@@ -1,339 +1,183 @@
-# 🔵 Pulse — AI-Powered PR Gatekeeper yeahhh brushhh it is !!!! yess
+# Pulse — AI PR review and terminal suggestions
 
-> Pulse is a GitHub App that automatically analyzes every Pull Request using AI — checking intent alignment, security risk, and code quality — then posts a structured decision (APPROVE / WARN / BLOCK).
+Pulse is a GitHub App and local command-line reviewer. It explains why a change matters, suggests exact code replacements, and helps developers simplify code before merging.
 
----
+## What Pulse reviews
 
-## 🚀 What Pulse Does
+- **PR value:** the problem solved, beneficiaries, and alignment with explicitly linked issues (`Fixes #123`, `Closes #123`, or `Resolves #123` in the same repository).
+- **Exact code fixes:** original lines, suggested replacement, and reasoning. Only replacements matching visible lines in the reviewed diff are published.
+- **Simplification:** repeated logic and opportunities to reuse existing utilities, with behavior-preservation tradeoffs.
+- **Dependencies:** opportunities to reuse existing packages or avoid unnecessary additions. These are AI recommendations, not a vulnerability scan.
+- **Affected features:** potential callers, APIs and tests based on available context. Hypotheses should be labeled; this is not a complete dependency graph.
+- **Tests:** regression-test recommendations marked NOT RUN. Existing GitHub Check results are reported separately. The CLI can execute a test command explicitly supplied by you.
 
-When a PR is opened or updated on your repo, Pulse:
+## GitHub workflow
 
-1. **Receives the webhook** from GitHub instantly
-2. **Fetches the actual code diff** — real files, real changes
-3. **Reads your `PRODUCT_INTENT.md`** — your product's goals and rules
-4. **Sends everything to AI** — analyzes alignment + security
-5. **Posts a structured comment** on the PR with full analysis
-6. **Creates a GitHub Check Run** — ✅ green / ⚠️ neutral / ❌ red on the PR
+1. GitHub sends a PR opened, updated, reopened or ready-for-review webhook.
+2. Pulse verifies the signature before processing it.
+3. It paginates changed files, fetches policy from the PR's base commit, and collects selected source files, the root package manifest, explicit issue references and existing CI checks.
+4. AI produces a structured review. Pulse validates the response and checks replacement lines against the actual diff.
+5. Pulse posts a COMMENT review for the PR author, including inline GitHub suggestion blocks and instructions for viewing suggestions in a terminal.
+6. A GitHub Check reports APPROVE, WARN or BLOCK. A stale analysis is cancelled; an analysis/publishing failure requires manual action.
 
----
-
-## 📸 Example Output
-
-```
-🔵 FeaturePulse Analysis
-
-Decision: ❌ BLOCK
-
-Product Intent Alignment: 25%
-Detected Feature: Adds Google Analytics tracking to the app
-- ❌ Conflicts with: "Avoid third-party tracking or analytics"
-- 💡 Recommendation: Consider self-hosted analytics like Plausible or PostHog
-
-Security Risk: 🟡 MEDIUM
-- 🔒 Sensitive modules touched: user tracking, third-party scripts
-- ✅ No vulnerabilities detected
-
-Scope: 1 file(s) changed · +50 / -0 lines
-
-Reasoning: The PR introduces third-party analytics which conflicts with the
-product's privacy-first intent. Security risk is medium due to external scripts.
-
----
-Pulse AI • Override by commenting `/pulse override` (requires admin)
-```
-
----
-
-## 🏗️ How It Works
-
-```
-GitHub Repo
-    │
-    │  PR opened/updated (webhook)
-    ▼
-Pulse Server (Node.js)
-    │
-    ├── 1. Create GitHub Check Run (in progress)
-    ├── 2. Post "analyzing..." comment
-    ├── 3. Fetch PR diff (real files + patches)
-    ├── 4. Load PRODUCT_INTENT.md
-    ├── 5. Send to AI (OpenRouter / GPT-3.5)
-    ├── 6. Apply decision logic (FR-5.1)
-    ├── 7. Post full analysis comment
-    └── 8. Update Check Run (✅ / ⚠️ / ❌)
-```
-
-### Decision Logic
+GitHub suggestions require a human to accept them. Pulse does not automatically edit, execute AI-generated commands, approve a GitHub review, or merge a PR. A failed Check only prevents merging if repository rules require that Check.
 
 | Condition | Decision |
-|---|---|
-| Security = CRITICAL | BLOCK |
-| Security = HIGH and Intent < 70% | BLOCK |
-| Intent < 50% | BLOCK |
-| Security = MEDIUM or Intent < 80% | WARN |
-| Everything else | APPROVE |
+| --- | --- |
+| HIGH or CRITICAL security risk | BLOCK |
+| Intent score below 50 when product intent is available | BLOCK |
+| Partial diff coverage or missing product intent | WARN (unless BLOCK applies) |
+| MEDIUM risk or intent score below 80 | WARN |
+| Otherwise | APPROVE |
 
----
+Intent scores are AI estimates, not measured probabilities or proof of security.
 
-## 🛠️ Tech Stack
+## CMD / terminal showcase
 
-- **Runtime:** Node.js (CommonJS)
-- **Framework:** Express.js
-- **GitHub API:** @octokit/rest
-- **AI:** OpenRouter API (GPT-3.5-turbo)
-- **Auth:** GitHub App JWT + Installation Tokens
-- **Tunnel (dev):** ngrok
+Run commands from the Pulse project folder. In Windows CMD, use cd /d followed by the quoted folder path first. Alternatively, invoke the full path to pulse.cmd, which switches to the correct directory automatically. A Cannot find module ...src/cli.js error means the command was run from the wrong directory. The CLI loads configuration from the Pulse installation folder.
 
----
+Double-click **pulse.cmd** on Windows to open a terminal with an offline example. The window stays open so you can read the suggested code. Node.js must be on PATH.
 
-## ⚙️ Setup & Installation
+From the Pulse directory:
 
-### Prerequisites
-
-- Node.js v18+
-- A GitHub Account
-- An OpenRouter API key → [openrouter.ai](https://openrouter.ai)
-- ngrok (for local development) → [ngrok.com](https://ngrok.com)
-
----
-
-### Step 1 — Clone the repo
-
-```bash
-git clone https://github.com/Harsh-mahadik999/plus-ai-bot--specailly-github-project-made-.git
-cd plus-ai-bot--specailly-github-project-made-
+```text
+node src/cli.js --demo
+node src/cli.js --help
+node src/cli.js --local .
+node src/cli.js --local "C:/path/to/project" --base main --output review.md
+node src/cli.js --repo OWNER/REPO --pr 123
 ```
 
-### Step 2 — Install dependencies
+You can use `pulse.cmd` with the same options on Windows, or `npm run review --` followed by the options. The demo is illustrative, not a live review of your code.
 
-```bash
-npm install
+Local review compares tracked working-tree changes (including staged changes) against HEAD by default, or the supplied base commit. Untracked files are excluded. Supported source/config files are reviewed; common secret filenames, binaries and unsupported files are excluded and mark coverage partial. Review your changes for secrets before sending them: filename filtering is not a secret scanner. Selected code is sent to OpenRouter.
+
+Remote CLI review uses `GITHUB_TOKEN` when configured, or reuses the GitHub App ID and private key to obtain a short-lived installation token. The App must be installed on the target repository. It only displays the review; posting comments is handled by the installed GitHub App.
+
+### Explicit local test execution
+
+```text
+node src/cli.js --local . --run-tests -- node --test
 ```
 
-### Step 3 — Create your `.env` file
+Inspect and trust the checkout first. This runs the executable and arguments you explicitly supplied, with no shell, a two-minute timeout and bounded captured output. It reports the actual exit result separately from AI suggestions. Tests run against your current code: proposed fixes are not applied. A failed/erroring test command makes the CLI exit nonzero.
 
-Create a file called `.env` in the root of the project:
+For npm scripts on Windows, supply `node` and the absolute path to `npm-cli.js`, followed by `test`. Shell built-ins and `.cmd` launchers are not supported by this test runner. AI-suggested commands are display-only.
 
-```env
+## Setup
+
+### Updating an existing installation
+
+You do not need to recreate or reinstall your GitHub App when updating Pulse.
+
+1. Put the updated source on the computer or hosting service running Pulse. Pushing to GitHub alone does not restart a local server or ngrok tunnel.
+2. Restore your existing `.env` and GitHub App private-key file on that host. These files are deliberately excluded from Git and are not included when cloning this repository.
+3. Keep the existing App ID, private key and webhook secret. Add **Issues: Read-only** to the App permissions and approve the update to enable linked-issue context.
+4. Run `npm ci`, then `node src/index.js` from the Pulse folder. Stop the previous Pulse process first if it already uses port 3000.
+5. Start your existing ngrok tunnel to port 3000, or use your deployed HTTPS service. Verify that the GitHub App webhook URL points to its `/webhook` endpoint.
+6. Open or update a test PR. Check the App's **Advanced → Recent Deliveries** page, then look for the Pulse review and Check on the PR.
+
+If startup reports **Missing configuration**, restore the missing environment settings before retrying. An ngrok **ERR_NGROK_3200** response means the tunnel is offline.
+
+To see example output immediately without credentials, run `node src/cli.js --demo` or double-click `pulse.cmd`. This is an offline example, not a live AI review or a running GitHub webhook server.
+
+### First-time setup
+
+Use Node.js 20 or newer and npm.
+
+```text
+npm ci
+```
+
+Copy `.env.example` to `.env`, then configure:
+
+```dotenv
 PORT=3000
-GITHUB_APP_ID=your_github_app_id
+GITHUB_APP_ID=your_app_id
 GITHUB_WEBHOOK_SECRET=your_webhook_secret
 GITHUB_PRIVATE_KEY_PATH=./private-key.pem
-OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_API_KEY=your_openrouter_key
+PULSE_MODEL=openai/gpt-4.1-mini
+# Only needed for remote CLI reviews:
+GITHUB_TOKEN=
 PULSE_LICENSE_ENFORCEMENT=false
-PULSE_LICENSE_KEY=your_private_license_key
-PULSE_LICENSE_KEY_SHA256=sha256_hash_of_your_private_license_key
 ```
 
-> ⚠️ Never commit your `.env` file. It's already in `.gitignore`.
+Choose an available OpenRouter model with reliable JSON/code-review support via `PULSE_MODEL`. The default is GPT-4.1 mini with a strict JSON schema; availability depends on your provider account. Local live reviews need only the OpenRouter settings. The offline demo needs no secrets or installed dependencies.
 
-### Step 4 — Create a GitHub App
+Create a GitHub App with:
 
-1. Go to [github.com/settings/apps/new](https://github.com/settings/apps/new)
-2. Fill in:
-   - **App Name:** anything you like
-   - **Homepage URL:** `http://localhost:3000`
-   - **Webhook URL:** your ngrok URL + `/webhook` (e.g. `https://xxxx.ngrok-free.app/webhook`)
-   - **Webhook Secret:** same value as `GITHUB_WEBHOOK_SECRET` in your `.env`
-3. Set **Permissions:**
-   - Pull requests: **Read & Write**
-   - Checks: **Read & Write**
-   - Contents: **Read**
-4. Subscribe to events: **Pull request**
-5. Click **Create GitHub App**
-6. Note your **App ID** → put in `.env`
-7. Generate a **Private Key** → download and save as `private-key.pem` in project root
+- Pull requests: Read & Write
+- Checks: Read & Write
+- Contents: Read
+- Issues: Read (for linked issue context)
+- Subscription: Pull request
 
-### Step 5 — Install the GitHub App on your repo
+Install it on the repositories you want reviewed. Download its private key and configure the webhook URL as `https://YOUR-HOST/webhook`. Use the same webhook secret in GitHub and `.env`. For development, run `ngrok http 3000` and use its HTTPS URL.
 
-1. Go to your GitHub App settings
-2. Click **Install App**
-3. Select the repo you want Pulse to analyze
-
-### Step 6 — Create your `PRODUCT_INTENT.md`
-
-This is the most important file — it tells Pulse what your product should and shouldn't do:
+Add `PRODUCT_INTENT.md` (or `PRODUCT_INTENT.MD`) to the **target repository's base branch**:
 
 ```markdown
 # Product Intent
-
-## Core Principles
-- Prioritize user privacy and minimal data collection
-- Avoid third-party tracking or analytics
-- Keep the app fast and lightweight
-
-## What We Are Building
-A privacy-focused SaaS tool for developers.
-
-## What We Are NOT Building
-- No admin dashboards in this phase
-- No social features
+- Prefer simple, readable solutions.
+- Avoid dependencies unless they provide clear value.
+- Protect user data.
+- Keep each PR focused on one problem.
 ```
 
-Place this file in the **root of the repo you want Pulse to analyze** (not the Pulse app itself).
+Start the server:
 
-### Step 7 — Start ngrok
-
-```bash
-ngrok http 3000
+```text
+npm start
 ```
 
-Copy the `https://xxxx.ngrok-free.app` URL and update it in your GitHub App webhook settings.
+Development, tests and optional compiled output:
 
-### Step 8 — Start Pulse
-
-```bash
-npx kill-port 3000 && node src/index.js
+```text
+npm run dev
+npm test
+npm run build
+node dist/index.js
 ```
 
-You should see:
-```
-✅ PRODUCT_INTENT.md loaded
-🚀 Pulse server running on port 3000
-```
+The source implementation is CommonJS JavaScript. The build copies JavaScript into `dist` using TypeScript's allowJs mode; there is no second server implementation.
 
----
+## Limits and reliability
 
-## 🧪 Testing
+- PR patches have a 100,000-character total budget. Missing/truncated patches mark coverage partial and cannot produce APPROVE.
+- Before sending a review, Pulse reduces the combined context to 24,000 characters for compatibility with smaller models. Removed context is marked partial and cannot produce APPROVE. JSON response mode is requested; malformed responses still fail closed.
+- Surrounding context is selective: up to seven files, with per-file limits. This is not a whole-repository analysis or security certification.
+- Invalid model responses fail the review rather than produce a fabricated low-risk score.
+- Code fixes must match exact right-side diff lines within a single hunk. Unverifiable fixes are omitted.
+- The app uses an in-memory, one-hour deduplication window and processes reviews after acknowledging the webhook. Restart recovery, durable jobs and cross-instance deduplication are future work. Redeliver failed webhooks when needed.
+- The server does not execute PR code. CI evidence comes from GitHub checks; Pulse does not independently attest what those checks tested.
+- No editor UI or automatic patch application is included. Review and accept replacements in GitHub; use the terminal to inspect recommendations.
 
-1. Go to your test repo on GitHub
-2. Create a new branch
-3. Make any change (even edit README)
-4. Open a Pull Request
-5. Watch Pulse analyze it in real time!
+## Optional runtime license enforcement
 
----
+Set `PULSE_LICENSE_ENFORCEMENT=true`, `PULSE_LICENSE_KEY`, and `PULSE_LICENSE_KEY_SHA256` to enable the existing server startup guard. The hash is the SHA-256 of the exact trimmed key. Invalid configuration prevents server startup.
 
-## 📁 Project Structure
+## Structure
 
-```
-pulse-app/
-├── src/
-│   └── index.js          # Main server — all the logic
-├── PRODUCT_INTENT.md     # Your product goals (edit this!)
-├── .env                  # Secrets — never commit! (not in repo)
-├── .env.example          # Template for .env
-├── private-key.pem       # GitHub App key — never commit! (not in repo)
-├── package.json
-├── LICENSE               # Project license
-└── README.md
+```text
+src/index.js       GitHub webhook server and authentication
+src/review.js      AI analysis, validation, formatting and suggestion checks
+src/github.js      Repository context and GitHub review publishing
+src/cli.js         Local/remote terminal reviews and explicit test execution
+pulse.cmd          Windows terminal demo / command launcher
+test/              Automated regression tests
 ```
 
----
+## Roadmap
 
-## 🔐 Security
+- Durable review queue and retries
+- Dependency vulnerability scanning
+- Broader caller/test discovery
+- Permission-checked override command
+- Optional editor UI and reviewed patch application
 
-- `.env` and `private-key.pem` are in `.gitignore` and never pushed
-- All GitHub API calls use short-lived installation tokens
-- Webhook secret validates all incoming GitHub events
+## Contributing and license
 
-### Runtime License Enforcement (optional)
+See CONTRIBUTING.md for the issue, admin assignment and pull-request workflow.
 
-To protect production usage, you can enforce a runtime license check:
-
-- Set `PULSE_LICENSE_ENFORCEMENT=true`
-- Set `PULSE_LICENSE_KEY` to your private runtime key
-- Set `PULSE_LICENSE_KEY_SHA256` to the SHA-256 hash of that exact key
-
-Example hash generation:
-
-```bash
-node -e "console.log(require('crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" "your_private_license_key"
-```
-
-When enforcement is enabled and the key is invalid (or missing), Pulse exits at startup.
-
----
-
-## 🗺️ Roadmap
-
-- [x] Webhook receiver
-- [x] PR diff fetching
-- [x] PRODUCT_INTENT alignment scoring
-- [x] AI analysis (GPT-3.5)
-- [x] GitHub Check Run (✅/⚠️/❌)
-- [x] Structured PR comments
-- [ ] Webhook signature verification
-- [ ] Dependency vulnerability scanning (OSV)
-- [ ] Advisory / Gatekeeper / Auto-Approve modes
-- [ ] `/pulse override` command
-- [ ] Deploy to Railway/Render (permanent URL)
-
----
-
-## 👥 Contributing
-
-We welcome contributions! Please follow the guidelines below:
-
-### How to Contribute
-
-1. **Open an Issue First**
-   - Check [existing issues](../../issues) to avoid duplicates
-   - Describe the feature, bug, or improvement clearly
-   - Wait for admin review and approval before starting work
-
-2. **Admin Assignment**
-   - After issue approval, the project admin will assign it to you
-   - Admin will confirm the scope and approach
-
-3. **Create Your Feature Branch**
-   - Once assigned, create a new branch from the latest `main`:
-     ```bash
-     git checkout main
-     git pull origin main
-     git checkout -b feature/your-feature-name
-     ```
-   - Use a clear branch naming convention:
-     - `feature/` for new features
-     - `bugfix/` for bug fixes
-     - `docs/` for documentation updates
-     - `refactor/` for code refactoring
-
-4. **Make Your Changes**
-   - Write clean, well-commented code
-   - Follow the existing code style
-   - Test your changes thoroughly
-
-5. **Submit a Pull Request**
-   - Link the PR to the related issue: `Closes #<issue-number>`
-   - Provide a clear description of changes
-   - Wait for code review and approval
-
-6. **Review & Merge**
-   - Address feedback from reviewers
-   - Once approved and all checks pass, your PR will be merged
-
-### Code of Conduct
-
-- Be respectful and constructive
-- Provide thoughtful feedback
-- Help others succeed in their contributions
-- Report any abusive behavior to the maintainers
-
-### Development Setup
-
-See [⚙️ Setup & Installation](#-setup--installation) above for local development instructions.
-
----
-
-## 📄 License
-
-This repository is **proprietary** and released under an **All Rights Reserved** license.
-
-See [LICENSE](./LICENSE) for full terms. Unauthorized copying, modification,
-distribution, or commercial use is prohibited without explicit written permission
-from the copyright holder.
-
----
-
-## 🤝 Support
-
-- 📧 **Email:** (contact info to be added)
-- 🐛 **Issues:** [GitHub Issues](../../issues)
-- 💬 **Discussions:** [GitHub Discussions](../../discussions)
-
----
-
-## 👨‍💻 Built By
-
-**Harsh Mahadik** — built for hackathon 🚀
+Copyright (c) 2026 Harsh Mahadik. This repository is proprietary and All Rights Reserved; see LICENSE.
