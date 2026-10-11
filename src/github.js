@@ -47,7 +47,7 @@ async function collectContext(api, owner, repo, number) {
   }
   try {
     const checks = await api.paginate(api.rest.checks.listForRef, { owner, repo, ref: pr.head.sha, per_page: 100 })
-    context.checks = checks.filter(c => c.name !== 'Pulse Analysis').slice(0, 30).map(c => `${c.name}: ${c.status} / ${c.conclusion || 'pending'} (GitHub CI, not executed by Pulse)`)
+    context.checks = checks.filter(c => !c.name.startsWith('Pulse Analysis')).slice(0, 30).map(c => `${c.name}: ${c.status} / ${c.conclusion || 'pending'} (GitHub CI, not executed by Pulse)`)
   } catch { context.checks = ['CI evidence unavailable.'] }
   if (!context.checks.length) context.checks = ['No existing CI checks reported for this commit.']
   return context
@@ -56,7 +56,7 @@ async function collectContext(api, owner, repo, number) {
 async function reviewPR(api, owner, repo, number, expectedSha) {
   const context = await collectContext(api, owner, repo, number)
   if (expectedSha && context.sha !== expectedSha) return { skipped: true }
-  const { data: check } = await api.rest.checks.create({ owner, repo, name: 'Pulse Analysis', head_sha: context.sha, status: 'in_progress' })
+  const { data: check } = await api.rest.checks.create({ owner, repo, name: 'Pulse Analysis #' + number, head_sha: context.sha, status: 'in_progress' })
   try {
     const result = await analyze(context)
     const { data: latest } = await api.rest.pulls.get({ owner, repo, pull_number: number })
