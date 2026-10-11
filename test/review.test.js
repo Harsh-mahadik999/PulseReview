@@ -72,6 +72,20 @@ test('oversized context is reduced and reported as a partial review', async () =
   assert.match(formatReport(actual, context), /PARTIAL/)
 })
 
+test('AI input separates current code from removed code for replacement suggestions', async () => {
+  process.env.OPENROUTER_API_KEY = 'test-placeholder'
+  const { context, result } = demo()
+  context.files = [{ filename: 'Example.java', patch: '@@ -1 +1 @@\n-    return false;\n+    return points >= 100;' }]
+  result.fixes = []
+  await analyze(context, async (_url, request) => {
+    const sent = JSON.parse(JSON.parse(request.body).messages[1].content)
+    assert.deepEqual(sent.files[0].currentLines, [{ line: 1, text: '    return points >= 100;' }])
+    assert.deepEqual(sent.files[0].removedLinesForContextOnly, ['    return false;'])
+    assert.equal(sent.files[0].patch, undefined)
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(result) } }] }) }
+  })
+})
+
 test('explicit test execution records real passing and failing exit codes', () => {
   assert.equal(runTests(process.cwd(), [process.execPath, '-e', 'process.exit(0)']).passed, true)
   assert.equal(runTests(process.cwd(), [process.execPath, '-e', 'process.exit(7)']).passed, false)

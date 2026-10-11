@@ -29,7 +29,7 @@ async function collectContext(api, owner, repo, number) {
     incomplete: incomplete || !intent, relatedFiles: [], issues: [], checks: [] }
   const headOwner = pr.head.repo?.owner.login || owner
   const headRepo = pr.head.repo?.name || repo
-  const paths = [...new Set(['package.json', ...files.filter(f => /\.(js|ts|tsx|jsx|py|go|rs)$/.test(f.filename)).map(f => f.filename)])].slice(0, 7)
+  const paths = [...new Set(['package.json', ...files.filter(f => /\.(js|ts|tsx|jsx|py|go|rs|java)$/.test(f.filename)).map(f => f.filename)])].slice(0, 7)
   for (const path of paths) {
     const content = await readFile(api, headOwner, headRepo, path, pr.head.sha)
     if (content !== null) context.relatedFiles.push({ path, content: content.slice(0, 12000), truncated: content.length > 12000 })
