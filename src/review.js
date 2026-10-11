@@ -21,7 +21,7 @@ function rightLines(patch = '') {
 }
 
 function validateResult(value) {
-  if (!value || !Number.isFinite(value.intentScore) || value.intentScore < 0 || value.intentScore > 100 ||
+  if (!value || !Number.isInteger(value.intentScore) || value.intentScore < 0 || value.intentScore > 100 ||
       !['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(value.securityRisk)) throw new Error('Invalid AI decision fields')
   for (const key of ['summary', 'value', 'beneficiaries', 'issueAlignment', 'reasoning']) {
     if (typeof value[key] !== 'string' || value[key].length > 4000) throw new Error('Invalid AI field: ' + key)
@@ -41,16 +41,19 @@ function validateResult(value) {
 }
 
 function verifiedFixes(fixes, files) {
-  return fixes.filter(fix => {
+  return fixes.flatMap(fix => {
     const file = files.find(f => f.filename === fix.path)
-    if (!file) return false
+    if (!file) return []
     const lines = rightLines(file.patch)
-    const range = []
-    for (let n = fix.startLine; n <= fix.endLine; n++) {
-      if (!lines.has(n) || lines.get(n).hunk !== lines.get(fix.startLine)?.hunk) return false
-      range.push(lines.get(n).text)
+    const original = fix.original.split('\n')
+    if (original.length > 41 || fix.original === fix.replacement) return []
+    const matches = []
+    for (const [start, entry] of lines) {
+      if (original.every((text, offset) => lines.get(start + offset)?.text === text && lines.get(start + offset)?.hunk === entry.hunk)) matches.push(start)
     }
-    return range.join('\n') === fix.original && fix.original !== fix.replacement
+    // Ground positions in exact source text, never trust model line arithmetic.
+    if (matches.length !== 1) return []
+    return [{ ...fix, startLine: matches[0], endLine: matches[0] + original.length - 1 }]
   })
 }
 
@@ -78,7 +81,7 @@ async function analyze(context, request = fetch) {
     if (JSON.stringify(context).length > limit) throw new Error('Review metadata exceeds context budget; use a smaller change')
   }
   const schema = {
-    intentScore: 0, securityRisk: 'LOW|MEDIUM|HIGH|CRITICAL', summary: 'What changed',
+    intentScore: 95, securityRisk: 'LOW|MEDIUM|HIGH|CRITICAL', summary: 'What changed',
     value: 'Problem solved and evidence; do not invent business impact', beneficiaries: 'Who benefits',
     issueAlignment: 'Match to supplied issue; unknown if absent', reasoning: 'Decision evidence',
     simplifications: ['Concrete opportunities with file references and tradeoffs'],
@@ -90,7 +93,7 @@ async function analyze(context, request = fetch) {
   const string = { type: 'string' }
   const strings = { type: 'array', items: string }
   const fixProperties = { path: string, startLine: { type: 'integer' }, endLine: { type: 'integer' }, original: string, replacement: string, reason: string }
-  const properties = { intentScore: { type: 'number' }, securityRisk: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] },
+  const properties = { intentScore: { type: 'integer', minimum: 0, maximum: 100, description: 'Whole percentage from 0 to 100; high alignment is 95, never 0.95.' }, securityRisk: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] },
     summary: string, value: string, beneficiaries: string, issueAlignment: string, reasoning: string,
     simplifications: strings, dependencies: strings, affectedFeatures: strings, tests: strings,
     fixes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: fixProperties, required: Object.keys(fixProperties) } } }
