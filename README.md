@@ -1,4 +1,4 @@
-# Pulse — AI PR review and terminal suggestions //// neha
+# Pulse — AI PR review and terminal suggestions ////neha
 
 Pulse is a GitHub App and local command-line reviewer. It explains why a change matters, suggests exact code replacements, and helps developers simplify code before merging.
 
