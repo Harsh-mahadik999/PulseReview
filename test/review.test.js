@@ -26,7 +26,8 @@ test('fixes must match exact right-side source lines within a single hunk', () =
   const fix = { path: 'a.js', startLine: 1, endLine: 2, original: 'new\nkeep', replacement: 'better', reason: 'readability' }
   assert.deepEqual(verifiedFixes([fix], files), [fix])
   assert.equal(verifiedFixes([{ ...fix, original: 'old\nkeep' }], files).length, 0)
-  assert.equal(verifiedFixes([{ ...fix, endLine: 10 }], files).length, 0)
+  assert.deepEqual(verifiedFixes([{ ...fix, startLine: 7, endLine: 10 }], files), [fix])
+  assert.equal(verifiedFixes([{ ...fix, original: 'new\nkeep\nnext' }], files).length, 0)
   assert.equal(verifiedFixes([{ ...fix, path: 'missing.js' }], files).length, 0)
   assert.equal(inlineComments({ fixes: [fix] })[0].start_line, 1)
   assert.match(inlineComments({ fixes: [{ ...fix, replacement: '@decorator\nfunction()' }] })[0].body, /@decorator/)
@@ -44,6 +45,7 @@ test('AI output is validated and ungrounded fixes removed', async () => {
   assert.equal(reviewed.testsStatus, 'NOT RUN')
   await assert.rejects(analyze(context, async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '{"intentScore":100}' } }] }) })), /Invalid AI/)
   await assert.rejects(analyze(context, async () => ({ ok: false, status: 429 })), /429/)
+  await assert.rejects(analyze(context, async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ...result, intentScore: 0.95 }) } }] }) })), /Invalid AI decision/)
 })
 
 test('reports distinguish suggested tests from actual execution and sanitize terminal escapes', () => {
@@ -68,6 +70,20 @@ test('oversized context is reduced and reported as a partial review', async () =
   })
   assert.equal(actual.decision, 'WARN')
   assert.match(formatReport(actual, context), /PARTIAL/)
+})
+
+test('AI input separates current code from removed code for replacement suggestions', async () => {
+  process.env.OPENROUTER_API_KEY = 'test-placeholder'
+  const { context, result } = demo()
+  context.files = [{ filename: 'Example.java', patch: '@@ -1 +1 @@\n-    return false;\n+    return points >= 100;' }]
+  result.fixes = []
+  await analyze(context, async (_url, request) => {
+    const sent = JSON.parse(JSON.parse(request.body).messages[1].content)
+    assert.deepEqual(sent.files[0].currentLines, [{ line: 1, text: '    return points >= 100;' }])
+    assert.deepEqual(sent.files[0].removedLinesForContextOnly, ['    return false;'])
+    assert.equal(sent.files[0].patch, undefined)
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(result) } }] }) }
+  })
 })
 
 test('explicit test execution records real passing and failing exit codes', () => {
